@@ -37,7 +37,7 @@ if ! command -v ntldd >/dev/null 2>&1 && ! command -v objdump >/dev/null 2>&1; t
 fi
 
 list_staged_binaries() {
-    find "$STAGE_DIR" -type f ( -iname '*.exe' -o -iname '*.dll' )
+    find "$STAGE_DIR" -type f \( -iname '*.exe' -o -iname '*.dll' \)
 }
 
 # Print one resolved dependency path per line for a given binary.
