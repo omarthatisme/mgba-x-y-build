@@ -74,40 +74,64 @@ jobs:
           rm -rf /tmp/mgba-package
           mkdir -p /tmp/mgba-package
 
-          # Start from the real Qt executable.
+          # Put the actual Qt executable at the package root.
           cp "$EXE" /tmp/mgba-package/mGBA.exe
 
-          # MSYS2's current Qt5 package ships windeployqt-qt5 but names qmake
-          # qmake-qt5.exe; provide the qmake.exe name windeployqt expects.
-          cp -f /ucrt64/bin/qmake-qt5.exe /ucrt64/bin/qmake.exe
+          # Ship the Qt5 runtime DLLs needed by the Qt frontend.
+          for DLL in /ucrt64/bin/libQt5*.dll /ucrt64/bin/libgcc_s_seh-1.dll /ucrt64/bin/libstdc++-6.dll /ucrt64/bin/libwinpthread-1.dll; do
+            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+          done
 
-          # Deploy the Qt5 runtime and plugins.
-          windeployqt-qt5 --release --no-translations --no-opengl-sw --dir /tmp/mgba-package "$EXE"
+          # Ship Qt platform/image/style plugins, but no development files.
+          for DIR in platforms imageformats iconengines styles mediaservice; do
+            if [ -d "/ucrt64/share/qt5/plugins/$DIR" ]; then
+              mkdir -p "/tmp/mgba-package/$DIR"
+              for DLL in "/ucrt64/share/qt5/plugins/$DIR"/*.dll; do
+                [ -f "$DLL" ] && cp -u "$DLL" "/tmp/mgba-package/$DIR/"
+              done
+            fi
+            if [ -d "/ucrt64/lib/qt5/plugins/$DIR" ]; then
+              mkdir -p "/tmp/mgba-package/$DIR"
+              for DLL in "/ucrt64/lib/qt5/plugins/$DIR"/*.dll; do
+                [ -f "$DLL" ] && cp -u "$DLL" "/tmp/mgba-package/$DIR/"
+              done
+            fi
+          done
 
-          # Add the complete MinGW/UCRT dependency closure of mGBA.
-          # ntldd can return non-zero for optional/unresolved system DLLs; keep
-          # packaging alive while copying every DLL it can resolve.
-          (
-            ntldd -R "$EXE" || true
-          ) |
-            awk -F' => ' '/ => / {print $2}' |
-            sed -E 's/ \(0x[0-9A-Fa-f]+\)$//' |
-            while IFS= read -r DLL; do
-              [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
-            done
+          # Add the complete MinGW/UCRT dependency closure reported by ntldd.
+          # The command can return non-zero for Windows system DLLs, so its
+          # output is captured without making the packaging step fail.
+          ntldd -R "$EXE" > /tmp/mgba-ntldd.txt 2>&1 || true
+          while IFS= read -r DLL; do
+            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+          done < <(
+            sed -nE 's/^.* => ([A-Za-z]:[^ ]+)( ([^)]*\))?$/\1/p' /tmp/mgba-ntldd.txt |
+              sed 's#\\#/#g'
+          )
 
-          # Match the portable layout of the release: docs, bundled licenses, and portable.ini.
+          # Common MSYS2 runtime DLLs, when present.
+          for DLL in /ucrt64/bin/zlib1.dll /ucrt64/bin/libpng16-16.dll /ucrt64/bin/SDL2.dll; do
+            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+          done
+
+          # Match the portable layout of the official release: docs, licenses,
+          # and an empty portable.ini.
           cp ../CHANGES ../LICENSE ../README.md ../README_DE.md ../README_ES.md ../README_ZH_CN.md /tmp/mgba-package/
           mkdir -p /tmp/mgba-package/licenses
           cp ../res/licenses/*.txt /tmp/mgba-package/licenses/
           : > /tmp/mgba-package/portable.ini
+
+          # Sanity-check the package before creating the artifact.
+          test -f /tmp/mgba-package/mGBA.exe
+          test -f /tmp/mgba-package/portable.ini
+          test -f /tmp/mgba-package/platforms/qwindows.dll
 
           cd ../..
           OUT="$PWD/mGBA-0.10.5-X-Y-win64.zip"
           rm -f "$OUT"
           (cd /tmp/mgba-package && zip -qr "$OUT" .)
           test -s "$OUT"
-          unzip -l "$OUT" | grep -Ei '(^|/)mGBA\.exe$|portable\.ini'
+          unzip -l "$OUT" | grep -Ei '(^|/)mGBA\.exe$|portable\.ini|platforms/qwindows\.dll'
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
