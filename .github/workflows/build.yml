@@ -73,17 +73,25 @@ jobs:
           rm -rf /tmp/mgba-package
           mkdir -p /tmp/mgba-package
 
-          # Start from the real Qt executable and deploy its Qt plugins/runtime.
+          # Start from the real Qt executable.
           cp "$EXE" /tmp/mgba-package/mGBA.exe
-          windeployqt-qt5 --no-opengl-sw --no-svg --release --dir /tmp/mgba-package "$EXE"
 
-          # Add every MinGW/UCRT dependency referenced by mGBA itself.
+          # Copy the complete MinGW/UCRT dependency closure of mGBA.
           ntldd -R "$EXE" |
             awk -F' => ' '/ => / {print $2}' |
             sed -E 's/ \(0x[0-9A-Fa-f]+\)$//' |
             while IFS= read -r DLL; do
               [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
             done
+
+          # Qt5's runtime loads its platform/plugins dynamically, so include the
+          # standard Windows Qt plugin directories alongside the executable.
+          for plugin_dir in platforms imageformats styles iconengines; do
+            if [ -d "/ucrt64/share/qt5/plugins/$plugin_dir" ]; then
+              mkdir -p "/tmp/mgba-package/$plugin_dir"
+              cp -u /ucrt64/share/qt5/plugins/$plugin_dir/*.dll "/tmp/mgba-package/$plugin_dir/" 2>/dev/null || true
+            fi
+          done
 
           # Match the portable layout of the release: docs, bundled licenses, and portable.ini.
           cp ../CHANGES ../LICENSE ../README.md ../README_DE.md ../README_ES.md ../README_ZH_CN.md /tmp/mgba-package/
