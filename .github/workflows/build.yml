@@ -69,26 +69,42 @@ jobs:
         run: |
           cd mgba/build
 
-          # Use mGBA's own CPack distribution mechanism. The project
-          # documents cpack -G ZIP as the supported way to produce a
-          # distributable Windows build with its required runtime DLLs.
+          # mGBA's Windows install script expects the Qt executable at
+          # build/qt/mGBA.exe, while the Windows target actually outputs
+          # build/mGBA.exe. Give CPack the expected path without changing
+          # the real build output.
+          test -f mGBA.exe
+          mkdir -p qt
+          cp -f mGBA.exe qt/mGBA.exe
+
+          # MSYS2 names the Qt 5 deployment tool windeployqt-qt5.exe.
+          # mGBA's deploy-win.sh calls it as "windeployqt", so provide a
+          # small PATH wrapper for that exact command.
+          mkdir -p /tmp/mgba-bin
+          cat > /tmp/mgba-bin/windeployqt <<'EOF'
+          #!/bin/bash
+          exec /ucrt64/bin/windeployqt-qt5.exe "$@"
+          EOF
+          chmod +x /tmp/mgba-bin/windeployqt
+          export PATH="/tmp/mgba-bin:$PATH"
+          command -v windeployqt
+          command -v ntldd
+
+          # Use mGBA's own CPack distribution mechanism, but request only
+          # the runtime components needed by the desktop build.
           rm -f ./*.zip
-          # Package only the runtime components used by the official desktop build:
-          # core metadata, shared libmgba, Qt frontend, and SDL frontend. This
-          # excludes the development/header/test/debug components.
-          cpack -G ZIP -D CPACK_ARCHIVE_COMPONENT_INSTALL=OFF -D \"CPACK_COMPONENTS_ALL=mgba;libmgba;mgba-qt;mgba-sdl\"\n
+          cpack -G ZIP -D CPACK_ARCHIVE_COMPONENT_INSTALL=OFF -D 'CPACK_COMPONENTS_ALL=mgba;libmgba;mgba-qt;mgba-sdl'
+
           # CPack should have produced exactly one distributable ZIP.
           mapfile -t PACKAGES < <(find . -maxdepth 1 -type f -name 'mGBA-*.zip' -printf '%f\n')
           test "${#PACKAGES[@]}" -eq 1
           PKG="${PACKAGES[0]}"
 
-          # Verify the archive is readable and show its contents for the log.
           unzip -t "$PKG"
           echo "CPack package:"
           echo "$PKG"
           unzip -Z1 "$PKG" | sed -n '1,160p'
 
-          # Rename the CPack output to the X/Y build name used by the artifact.
           mv "$PKG" ../../mGBA-0.10.5-X-Y-win64.zip
           test -s ../../mGBA-0.10.5-X-Y-win64.zip
 
