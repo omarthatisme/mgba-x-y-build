@@ -77,21 +77,23 @@ jobs:
           # Put the actual Qt executable at the package root.
           cp "$EXE" /tmp/mgba-package/mGBA.exe
 
-          # Ship the Qt5 runtime DLLs needed by the Qt frontend.
-          for DLL in /ucrt64/bin/libQt5*.dll /ucrt64/bin/libgcc_s_seh-1.dll /ucrt64/bin/libstdc++-6.dll /ucrt64/bin/libwinpthread-1.dll; do
-            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
-          done
-
-          # Find the installed Qt5 plugin tree wherever the current MSYS2
-          # package places it, then copy only plugin DLLs (no development files).
-          QWINDOWS="$(find /ucrt64 -type f -path '*/qt5/plugins/platforms/qwindows.dll' -print -quit 2>/dev/null || true)"
-          test -n "$QWINDOWS"
-          PLUGIN_BASE="${QWINDOWS%/platforms/qwindows.dll}"
+          # Copy every runtime DLL shipped by the installed Qt5 base package.
+          # pacman gives us the exact paths used by this MSYS2 image.
           while IFS= read -r DLL; do
-            REL="${DLL#"$PLUGIN_BASE/"}"
+            [ -f "$DLL" ] || continue
+            REL="\${DLL#/ucrt64/}"
             mkdir -p "/tmp/mgba-package/$(dirname "$REL")"
             cp -u "$DLL" "/tmp/mgba-package/$REL"
-          done < <(find "$PLUGIN_BASE" -type f -name '*.dll' -print)
+          done < <(
+            pacman -Ql mingw-w64-ucrt-x86_64-qt5-base 2>/dev/null |
+              awk '$2 ~ /\\.dll$/ {print $2}'
+          )
+
+          # The Qt Windows platform plugin is required for the normal desktop UI.
+          test -f /tmp/mgba-package/share/qt5/plugins/platforms/qwindows.dll
+          mkdir -p /tmp/mgba-package/platforms
+          cp -u /tmp/mgba-package/share/qt5/plugins/platforms/*.dll /tmp/mgba-package/platforms/
+          rm -rf /tmp/mgba-package/share
           # Add the complete MinGW/UCRT dependency closure reported by ntldd.
           # The command can return non-zero for Windows system DLLs, so its
           # output is captured without making the packaging step fail.
@@ -118,7 +120,7 @@ jobs:
           # Sanity-check the package before creating the artifact.
           test -f /tmp/mgba-package/mGBA.exe
           test -f /tmp/mgba-package/portable.ini
-          test -f "/tmp/mgba-package/${QWINDOWS#"$PLUGIN_BASE/"}"
+          test -f /tmp/mgba-package/platforms/qwindows.dll
 
           cd ../..
           OUT="$PWD/mGBA-0.10.5-X-Y-win64.zip"
