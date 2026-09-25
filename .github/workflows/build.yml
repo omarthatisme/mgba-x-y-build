@@ -42,6 +42,7 @@ jobs:
             lua:p
             pkgconf:p
             qt5:p
+            qt5-tools:p
             SDL2:p
 
       - name: Check out upstream mGBA 0.10.5
