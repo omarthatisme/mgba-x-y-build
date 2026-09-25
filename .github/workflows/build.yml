@@ -47,11 +47,10 @@ jobs:
       - name: Check out upstream mGBA 0.10.5
         run: git clone --depth 1 --branch 0.10.5 https://github.com/mgba-emu/mgba.git mgba
 
-      - name: Apply X/Y input patch
+      - name: Apply X/Y source edits
         run: |
+          python ../.github/apply_xy.py
           cd mgba
-          git apply --check ../.github/mgba-x-y.patch
-          git apply ../.github/mgba-x-y.patch
           git diff --check
           git diff --stat
 
