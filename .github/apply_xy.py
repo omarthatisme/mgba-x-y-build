@@ -130,6 +130,12 @@ replace('src/platform/qt/IOViewer.cpp',
 \t\t{ tr("X"), 10 },
 \t\t{ tr("Y"), 11 },''', 2)
 
+# Upstream mGBA's Windows deploy script filters ntldd/gdb output for
+# "mingw", which misses the /ucrt64 paths used by this MSYS2 build.
+replace('tools/deploy-win.sh',
+'''grep -i mingw''',
+'''grep -Ei "mingw|ucrt64"''', 2)
+
 replace('src/platform/qt/Window.cpp',
 '''\tm_actions.addHeldAction(tr("Autofire B"), "autofireB", [this](bool held) {
 \t\tif (m_controller) {
