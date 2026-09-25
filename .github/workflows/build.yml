@@ -67,18 +67,36 @@ jobs:
       - name: Package clean Qt build
         run: |
           cd mgba/build
-          cpack -G ZIP
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name '*.zip' | head -n 1)
-          test -n "$ZIP_FILE"
+          EXE="$PWD/qt/mGBA.exe"
+          test -f "$EXE"
+
           rm -rf /tmp/mgba-package
           mkdir -p /tmp/mgba-package
-          unzip -q "$ZIP_FILE" -d /tmp/mgba-package
-          find /tmp/mgba-package -type f \( -iname 'mgba-sdl.exe' -o -iname 'mgba-sdl*.dll' \) -delete
+
+          # Start from the real Qt executable and deploy its Qt plugins/runtime.
+          cp "$EXE" /tmp/mgba-package/mGBA.exe
+          windeployqt-qt5 --no-opengl-sw --no-svg --release --dir /tmp/mgba-package "$EXE"
+
+          # Add every MinGW/UCRT dependency referenced by mGBA itself.
+          ntldd -R "$EXE" |
+            awk -F' => ' '/ => / {print $2}' |
+            sed -E 's/ \(0x[0-9A-Fa-f]+\)$//' |
+            while IFS= read -r DLL; do
+              [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+            done
+
+          # Match the portable layout of the release: docs, bundled licenses, and portable.ini.
+          cp ../CHANGES ../LICENSE ../README.md ../README_DE.md ../README_ES.md ../README_ZH_CN.md /tmp/mgba-package/
+          mkdir -p /tmp/mgba-package/licenses
+          cp ../res/licenses/*.txt /tmp/mgba-package/licenses/
+          : > /tmp/mgba-package/portable.ini
+
           cd ../..
           OUT="$PWD/mGBA-0.10.5-X-Y-win64.zip"
           rm -f "$OUT"
           (cd /tmp/mgba-package && zip -qr "$OUT" .)
-          unzip -l "$OUT" | grep -Ei 'mgba\.exe|mgba-sdl\.exe|portable\.ini' || true
+          test -s "$OUT"
+          unzip -l "$OUT" | grep -Ei '(^|/)mGBA\.exe$|portable\.ini'
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
