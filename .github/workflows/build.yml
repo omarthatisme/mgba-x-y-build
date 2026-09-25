@@ -77,23 +77,32 @@ jobs:
           # Put the actual Qt executable at the package root.
           cp "$EXE" /tmp/mgba-package/mGBA.exe
 
-          # Copy every runtime DLL shipped by the installed Qt5 base package.
-          # pacman gives us the exact paths used by this MSYS2 image.
+          # Copy runtime DLLs from the UCRT64 runtime directory. This avoids
+          # depending on the exact Qt package split/path used by the runner.
+          for DLL in /ucrt64/bin/*.dll; do
+            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+          done
+
+          # Find the Qt Windows platform plugin and copy it to the standard
+          # portable Qt location expected beside mGBA.exe.
+          QWINDOWS="$(find /ucrt64 -type f -name qwindows.dll -print -quit 2>/dev/null || true)"
+          if [ -z "$QWINDOWS" ]; then
+            echo "ERROR: qwindows.dll was not found under /ucrt64"
+            find /ucrt64 -type f -iname '*qwindows*.dll' -print 2>/dev/null || true
+            exit 1
+          fi
+          mkdir -p /tmp/mgba-package/platforms
+          cp -u "$QWINDOWS" /tmp/mgba-package/platforms/qwindows.dll
+
+          # Copy the rest of the Qt plugin DLLs from the same plugin tree when
+          # possible, keeping only runtime DLLs and their normal subdirectories.
+          PLUGIN_BASE="$(dirname "$(dirname "$QWINDOWS")")"
           while IFS= read -r DLL; do
-            [ -f "$DLL" ] || continue
-            REL="\${DLL#/ucrt64/}"
+            REL="${DLL#"$PLUGIN_BASE/"}"
+            [ "$REL" = "platforms/qwindows.dll" ] && continue
             mkdir -p "/tmp/mgba-package/$(dirname "$REL")"
             cp -u "$DLL" "/tmp/mgba-package/$REL"
-          done < <(
-            pacman -Ql mingw-w64-ucrt-x86_64-qt5-base 2>/dev/null |
-              awk '$2 ~ /\\.dll$/ {print $2}'
-          )
-
-          # The Qt Windows platform plugin is required for the normal desktop UI.
-          test -f /tmp/mgba-package/share/qt5/plugins/platforms/qwindows.dll
-          mkdir -p /tmp/mgba-package/platforms
-          cp -u /tmp/mgba-package/share/qt5/plugins/platforms/*.dll /tmp/mgba-package/platforms/
-          rm -rf /tmp/mgba-package/share
+          done < <(find "$PLUGIN_BASE" -type f -name '*.dll' -print 2>/dev/null || true)
           # Add the complete MinGW/UCRT dependency closure reported by ntldd.
           # The command can return non-zero for Windows system DLLs, so its
           # output is captured without making the packaging step fail.
