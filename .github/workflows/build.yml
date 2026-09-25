@@ -77,32 +77,29 @@ jobs:
           # Put the actual Qt executable at the package root.
           cp "$EXE" /tmp/mgba-package/mGBA.exe
 
-          # Copy runtime DLLs from the UCRT64 runtime directory. This avoids
-          # depending on the exact Qt package split/path used by the runner.
-          for DLL in /ucrt64/bin/*.dll; do
+          # MSYS2's Qt5 base package installs the Windows platform plugin at
+          # this documented path. Use the package's actual path instead of
+          # filesystem-wide discovery, which is unreliable in this shell.
+          for DLL in /ucrt64/bin/Qt5*.dll /ucrt64/bin/libgcc_s_seh-1.dll /ucrt64/bin/libstdc++-6.dll /ucrt64/bin/libwinpthread-1.dll; do
             [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
           done
 
-          # Find the Qt Windows platform plugin and copy it to the standard
-          # portable Qt location expected beside mGBA.exe.
-          QWINDOWS="$(find /ucrt64 -type f -name qwindows.dll -print -quit 2>/dev/null || true)"
-          if [ -z "$QWINDOWS" ]; then
-            echo "ERROR: qwindows.dll was not found under /ucrt64"
-            find /ucrt64 -type f -iname '*qwindows*.dll' -print 2>/dev/null || true
-            exit 1
-          fi
+          test -f /ucrt64/share/qt5/plugins/platforms/qwindows.dll
           mkdir -p /tmp/mgba-package/platforms
-          cp -u "$QWINDOWS" /tmp/mgba-package/platforms/qwindows.dll
+          cp -u /ucrt64/share/qt5/plugins/platforms/qwindows.dll /tmp/mgba-package/platforms/
 
-          # Copy the rest of the Qt plugin DLLs from the same plugin tree when
-          # possible, keeping only runtime DLLs and their normal subdirectories.
-          PLUGIN_BASE="$(dirname "$(dirname "$QWINDOWS")")"
-          while IFS= read -r DLL; do
-            REL="${DLL#"$PLUGIN_BASE/"}"
-            [ "$REL" = "platforms/qwindows.dll" ] && continue
-            mkdir -p "/tmp/mgba-package/$(dirname "$REL")"
-            cp -u "$DLL" "/tmp/mgba-package/$REL"
-          done < <(find "$PLUGIN_BASE" -type f -name '*.dll' -print 2>/dev/null || true)
+          # Copy runtime Qt plugins from each installed plugin directory,
+          # preserving the normal Qt portable layout.
+          for DIR in /ucrt64/share/qt5/plugins/*; do
+            [ -d "$DIR" ] || continue
+            NAME="$(basename "$DIR")"
+            mkdir -p "/tmp/mgba-package/$NAME"
+            for DLL in "$DIR"/*.dll; do
+              [ -f "$DLL" ] && cp -u "$DLL" "/tmp/mgba-package/$NAME/"
+            done
+          done
+          rm -f /tmp/mgba-package/platforms/qwindows.dll 2>/dev/null || true
+          cp -u /ucrt64/share/qt5/plugins/platforms/qwindows.dll /tmp/mgba-package/platforms/qwindows.dll
           # Add the complete MinGW/UCRT dependency closure reported by ntldd.
           # The command can return non-zero for Windows system DLLs, so its
           # output is captured without making the packaging step fail.
