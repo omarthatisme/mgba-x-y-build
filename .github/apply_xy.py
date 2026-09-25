@@ -31,6 +31,10 @@ replace('src/gba/input.c',
 \t\t"Y"
 ''')
 
+replace('include/mgba/internal/gba/serialize.h',
+'''\tDECL_BITS(GBASerializedMiscFlags, KeyIRQKeys, 4, 11);''',
+'''\tDECL_BITS(GBASerializedMiscFlags, KeyIRQKeys, 4, 13);''')
+
 replace('src/gba/gba.c', '\tgba->keysLast = 0x400;', '\tgba->keysLast = 0x1000;', 3)
 replace('src/gba/gba.c', '\tkeycnt &= 0x3FF;', '\tkeycnt &= 0x0FFF;')
 
@@ -117,5 +121,35 @@ replace('src/platform/qt/InputProfile.cpp',
 \t\t{ GamepadAxisEvent::Direction::NEUTRAL, -1 },
 \t\t{ GamepadAxisEvent::Direction::NEUTRAL, -1 },
 \t}''')
+
+replace('src/platform/qt/IOViewer.cpp',
+'''\t\t{ tr("R"), 8 },
+\t\t{ tr("L"), 9 },''',
+'''\t\t{ tr("R"), 8 },
+\t\t{ tr("L"), 9 },
+\t\t{ tr("X"), 10 },
+\t\t{ tr("Y"), 11 },''', 2)
+
+replace('src/platform/qt/Window.cpp',
+'''\tm_actions.addHeldAction(tr("Autofire B"), "autofireB", [this](bool held) {
+\t\tif (m_controller) {
+\t\t\tm_controller->setAutofire(GBA_KEY_B, held);
+\t\t}
+\t}, "autofire");''',
+'''\tm_actions.addHeldAction(tr("Autofire B"), "autofireB", [this](bool held) {
+\t\tif (m_controller) {
+\t\t\tm_controller->setAutofire(GBA_KEY_B, held);
+\t\t}
+\t}, "autofire");
+\tm_actions.addHeldAction(tr("Autofire X"), "autofireX", [this](bool held) {
+\t\tif (m_controller) {
+\t\t\tm_controller->setAutofire(GBA_KEY_X, held);
+\t\t}
+\t}, "autofire");
+\tm_actions.addHeldAction(tr("Autofire Y"), "autofireY", [this](bool held) {
+\t\tif (m_controller) {
+\t\t\tm_controller->setAutofire(GBA_KEY_Y, held);
+\t\t}
+\t}, "autofire");''')
 
 print('X/Y patch applied successfully')
