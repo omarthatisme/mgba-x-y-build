@@ -68,7 +68,7 @@ jobs:
       - name: Package clean Qt build
         run: |
           cd mgba/build
-          EXE="$PWD/qt/mGBA.exe"
+          EXE="$PWD/mGBA.exe"
           test -f "$EXE"
 
           rm -rf /tmp/mgba-package
