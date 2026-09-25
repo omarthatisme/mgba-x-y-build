@@ -4,10 +4,12 @@ ROOT = Path(__file__).resolve().parents[1] / "mgba"
 
 def replace(rel, old, new, count=1):
     p = ROOT / rel
-    s = p.read_text()
+    with p.open("r", encoding="utf-8", newline="") as f:
+        s = f.read()
     if s.count(old) != count:
         raise SystemExit(f'{rel}: expected {count} matches, found {s.count(old)}')
-    p.write_text(s.replace(old, new, count))
+    with p.open("w", encoding="utf-8", newline="") as f:
+        f.write(s.replace(old, new, count))
 
 replace('include/mgba/internal/gba/input.h',
 '''\tGBA_KEY_R = 8,
