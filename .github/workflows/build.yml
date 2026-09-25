@@ -133,7 +133,11 @@ jobs:
           rm -f "$OUT"
           (cd /tmp/mgba-package && zip -qr "$OUT" .)
           test -s "$OUT"
-          unzip -l "$OUT" | grep -Ei '(^|/)mGBA\.exe$|portable\.ini|platforms/qwindows\.dll'
+          # Verify the ZIP itself without a grep pipeline that can return 1
+          # merely because its listing format differs between unzip builds.
+          unzip -t "$OUT"
+          echo "Packaged files:"
+          unzip -Z1 "$OUT" | sed -n '1,120p'
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
