@@ -81,7 +81,7 @@ jobs:
           # this documented path. Use the package's actual path instead of
           # filesystem-wide discovery, which is unreliable in this shell.
           for DLL in /ucrt64/bin/Qt5*.dll /ucrt64/bin/libgcc_s_seh-1.dll /ucrt64/bin/libstdc++-6.dll /ucrt64/bin/libwinpthread-1.dll; do
-            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+            if [ -f "$DLL" ]; then cp -u "$DLL" /tmp/mgba-package/; fi
           done
 
           test -f /ucrt64/share/qt5/plugins/platforms/qwindows.dll
@@ -95,7 +95,7 @@ jobs:
             NAME="$(basename "$DIR")"
             mkdir -p "/tmp/mgba-package/$NAME"
             for DLL in "$DIR"/*.dll; do
-              [ -f "$DLL" ] && cp -u "$DLL" "/tmp/mgba-package/$NAME/"
+              if [ -f "$DLL" ]; then cp -u "$DLL" "/tmp/mgba-package/$NAME/"; fi
             done
           done
           rm -f /tmp/mgba-package/platforms/qwindows.dll 2>/dev/null || true
@@ -105,7 +105,7 @@ jobs:
           # output is captured without making the packaging step fail.
           ntldd -R "$EXE" > /tmp/mgba-ntldd.txt 2>&1 || true
           while IFS= read -r DLL; do
-            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+            if [ -f "$DLL" ]; then cp -u "$DLL" /tmp/mgba-package/; fi
           done < <(
             sed -nE 's/^.* => ([A-Za-z]:[^ ]+)( ([^)]*\))?$/\1/p' /tmp/mgba-ntldd.txt |
               sed 's#\\#/#g'
@@ -113,7 +113,7 @@ jobs:
 
           # Common MSYS2 runtime DLLs, when present.
           for DLL in /ucrt64/bin/zlib1.dll /ucrt64/bin/libpng16-16.dll /ucrt64/bin/SDL2.dll; do
-            [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
+            if [ -f "$DLL" ]; then cp -u "$DLL" /tmp/mgba-package/; fi
           done
 
           # Match the portable layout of the official release: docs, licenses,
