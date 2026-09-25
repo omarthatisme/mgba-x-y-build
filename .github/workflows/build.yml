@@ -101,9 +101,43 @@ jobs:
           PKG="${PACKAGES[0]}"
 
           unzip -t "$PKG"
-          echo "CPack package:"
+          echo "CPack package (before dependency repair):"
           echo "$PKG"
           unzip -Z1 "$PKG" | sed -n '1,160p'
+
+          # CPack's mgba-qt component runs upstream mGBA's
+          # tools/deploy-win.sh to gather runtime DLLs, but that script
+          # filters dependencies with `grep -i mingw`, which only
+          # matches a classic /mingw64 MSYS2 layout. This workflow
+          # builds with MSYS2 UCRT64, so runtime DLLs resolve under
+          # /ucrt64/... instead and are silently dropped (compiler
+          # runtime DLLs, FFmpeg's swscale, etc). windeployqt still
+          # runs correctly, so Qt itself is unaffected.
+          #
+          # Rather than patch the vendored mGBA source, discover and
+          # repair the actual runtime dependency closure of the staged
+          # package ourselves, using the same MSYS2/MinGW tooling
+          # (ntldd, with objdump as a fallback).
+          STAGE_DIR="$(mktemp -d)"
+          unzip -q "$PKG" -d "$STAGE_DIR"
+
+          bash "$GITHUB_WORKSPACE/.github/scripts/collect_runtime_dlls.sh" "$STAGE_DIR" /ucrt64
+
+          # Sanity-check the specific DLLs previously confirmed missing
+          # on a clean Windows machine, in addition to the generic
+          # closure check the script itself performs.
+          EXE_DIR="$(dirname "$(find "$STAGE_DIR" -iname 'mGBA.exe' -print -quit)")"
+          for required in libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll swscale-10.dll; do
+            test -f "$EXE_DIR/$required"
+          done
+          test -f "$EXE_DIR/platforms/qwindows.dll"
+
+          rm -f "$PKG"
+          (cd "$STAGE_DIR" && zip -r -q -X "$OLDPWD/$PKG" .)
+
+          echo "CPack package (after dependency repair):"
+          echo "$PKG"
+          unzip -Z1 "$PKG" | sed -n '1,200p'
 
           mv "$PKG" ../../mGBA-0.10.5-X-Y-win64.zip
           test -s ../../mGBA-0.10.5-X-Y-win64.zip
