@@ -73,8 +73,10 @@ jobs:
           # documents cpack -G ZIP as the supported way to produce a
           # distributable Windows build with its required runtime DLLs.
           rm -f ./*.zip
-          cpack -G ZIP -D CPACK_ARCHIVE_COMPONENT_INSTALL=OFF
-
+          # Package only the runtime components used by the official desktop build:
+          # core metadata, shared libmgba, Qt frontend, and SDL frontend. This
+          # excludes the development/header/test/debug components.
+          cpack -G ZIP -D CPACK_ARCHIVE_COMPONENT_INSTALL=OFF -D \"CPACK_COMPONENTS_ALL=mgba;libmgba;mgba-qt;mgba-sdl\"\n
           # CPack should have produced exactly one distributable ZIP.
           mapfile -t PACKAGES < <(find . -maxdepth 1 -type f -name 'mGBA-*.zip' -printf '%f\n')
           test "${#PACKAGES[@]}" -eq 1
