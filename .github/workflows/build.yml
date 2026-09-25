@@ -68,97 +68,27 @@ jobs:
       - name: Package clean Qt build
         run: |
           cd mgba/build
-          EXE="$PWD/mGBA.exe"
-          test -f "$EXE"
 
-          rm -rf /tmp/mgba-package
-          mkdir -p /tmp/mgba-package
+          # Use mGBA's own CPack distribution mechanism. The project
+          # documents cpack -G ZIP as the supported way to produce a
+          # distributable Windows build with its required runtime DLLs.
+          rm -f ./*.zip
+          cpack -G ZIP -D CPACK_ARCHIVE_COMPONENT_INSTALL=OFF
 
-          # Put the actual Qt executable at the package root.
-          cp "$EXE" /tmp/mgba-package/mGBA.exe
+          # CPack should have produced exactly one distributable ZIP.
+          mapfile -t PACKAGES < <(find . -maxdepth 1 -type f -name 'mGBA-*.zip' -printf '%f\n')
+          test "${#PACKAGES[@]}" -eq 1
+          PKG="${PACKAGES[0]}"
 
-          # MSYS2's Qt5 base package installs the Windows platform plugin at
-          # this documented path. Use the package's actual path instead of
-          # filesystem-wide discovery, which is unreliable in this shell.
-          for DLL in /ucrt64/bin/Qt5*.dll /ucrt64/bin/libgcc_s_seh-1.dll /ucrt64/bin/libstdc++-6.dll /ucrt64/bin/libwinpthread-1.dll; do
-            if [ -f "$DLL" ]; then cp -u "$DLL" /tmp/mgba-package/; fi
-          done
+          # Verify the archive is readable and show its contents for the log.
+          unzip -t "$PKG"
+          echo "CPack package:"
+          echo "$PKG"
+          unzip -Z1 "$PKG" | sed -n '1,160p'
 
-          test -f /ucrt64/share/qt5/plugins/platforms/qwindows.dll
-          mkdir -p /tmp/mgba-package/platforms
-          cp -u /ucrt64/share/qt5/plugins/platforms/qwindows.dll /tmp/mgba-package/platforms/
-
-          # Copy runtime Qt plugins from each installed plugin directory,
-          # preserving the normal Qt portable layout.
-          for DIR in /ucrt64/share/qt5/plugins/*; do
-            [ -d "$DIR" ] || continue
-            NAME="$(basename "$DIR")"
-            mkdir -p "/tmp/mgba-package/$NAME"
-            for DLL in "$DIR"/*.dll; do
-              if [ -f "$DLL" ]; then cp -u "$DLL" "/tmp/mgba-package/$NAME/"; fi
-            done
-          done
-          rm -f /tmp/mgba-package/platforms/qwindows.dll 2>/dev/null || true
-          cp -u /ucrt64/share/qt5/plugins/platforms/qwindows.dll /tmp/mgba-package/platforms/qwindows.dll
-          # Collect the runtime dependency closure reported by ntldd.
-          # The previous version parsed absolute Windows paths from ntldd output;
-          # that is fragile under the MSYS2 shell. Instead extract DLL basenames
-          # and resolve them against the UCRT runtime directory and the build tree.
-          ntldd -R "$EXE" > /tmp/mgba-ntldd.txt 2>&1 || true
-          grep -Eio '[[:alnum:]_.-]+\.dll' /tmp/mgba-ntldd.txt | sort -fu > /tmp/mgba-dll-names.txt || true
-          while IFS= read -r NAME; do
-            [ -n "$NAME" ] || continue
-            FOUND=""
-            if [ -f "/ucrt64/bin/$NAME" ]; then
-              FOUND="/ucrt64/bin/$NAME"
-            else
-              FOUND="$(find .. -maxdepth 4 -type f -iname "$NAME" -print -quit 2>/dev/null || true)"
-            fi
-            if [ -n "$FOUND" ] && [ -f "$FOUND" ]; then
-              cp -u "$FOUND" /tmp/mgba-package/
-            fi
-          done < /tmp/mgba-dll-names.txt
-
-          # Known runtime dependencies of the current MSYS2 UCRT64 toolchain.
-          # Keep this explicit safety net so the portable package does not rely
-          # on ntldd path-format details for these libraries.
-          for NAME in             libepoxy-0.dll             swscale-10.dll             libdouble-conversion.dll             libharfbuzz-0.dll             libicuin78.dll             libicuuc78.dll             libmd4c.dll             libpcre2-16-0.dll             libzstd.dll             zlib1.dll             libpng16-16.dll             SDL2.dll; do
-            FOUND=""
-            if [ -f "/ucrt64/bin/$NAME" ]; then
-              FOUND="/ucrt64/bin/$NAME"
-            else
-              FOUND="$(find .. -maxdepth 4 -type f -iname "$NAME" -print -quit 2>/dev/null || true)"
-            fi
-            if [ -n "$FOUND" ] && [ -f "$FOUND" ]; then
-              cp -u "$FOUND" /tmp/mgba-package/
-            fi
-          done
-
-          # libmgba.dll is built with mGBA itself; copy the exact build output.
-          LIBMGBA="$(find .. -maxdepth 4 -type f -iname 'libmgba.dll' -print -quit 2>/dev/null || true)"
-          test -n "$LIBMGBA"
-          cp -u "$LIBMGBA" /tmp/mgba-package/\n\n          # Match the portable layout of the official release: docs, licenses,
-          # and an empty portable.ini.
-          cp ../CHANGES ../LICENSE ../README.md ../README_DE.md ../README_ES.md ../README_ZH_CN.md /tmp/mgba-package/
-          mkdir -p /tmp/mgba-package/licenses
-          cp ../res/licenses/*.txt /tmp/mgba-package/licenses/
-          : > /tmp/mgba-package/portable.ini
-
-          # Sanity-check the package before creating the artifact.
-          test -f /tmp/mgba-package/mGBA.exe
-          test -f /tmp/mgba-package/portable.ini
-          test -f /tmp/mgba-package/platforms/qwindows.dll
-
-          cd ../..
-          OUT="$PWD/mGBA-0.10.5-X-Y-win64.zip"
-          rm -f "$OUT"
-          (cd /tmp/mgba-package && zip -qr "$OUT" .)
-          test -s "$OUT"
-          # Verify the ZIP itself without a grep pipeline that can return 1
-          # merely because its listing format differs between unzip builds.
-          unzip -t "$OUT"
-          echo "Packaged files:"
-          unzip -Z1 "$OUT" | sed -n '1,120p'
+          # Rename the CPack output to the X/Y build name used by the artifact.
+          mv "$PKG" ../../mGBA-0.10.5-X-Y-win64.zip
+          test -s ../../mGBA-0.10.5-X-Y-win64.zip
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
