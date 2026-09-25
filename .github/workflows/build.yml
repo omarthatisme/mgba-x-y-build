@@ -89,7 +89,7 @@ jobs:
 -	gba->keysLast = 0x400;
 +	gba->keysLast = 0x1000;
  	if (gba->yankedRomSize) {
- 		gba->memory.romSize = gba->memory.romSize;
+ 		gba->memory.romSize = gba->yankedRomSize;
  		gba->memory.romMask = toPow2(gba->memory.romSize) - 1;
 @@ -934,7 +934,7 @@
  	gba->keysLast = keysActive;
@@ -260,15 +260,20 @@ PATCH
           cd mgba
           cmake --build build --parallel $(nproc)
 
-      - name: Package
+      - name: Package clean Qt build
         run: |
           cd mgba/build
           cpack -G ZIP
           ZIP_FILE=$(find . -maxdepth 1 -type f -name '*.zip' | head -n 1)
           test -n "$ZIP_FILE"
-          cp "$ZIP_FILE" ../../mGBA-0.10.5-X-Y-win64.zip
+          rm -rf /tmp/mgba-package
+          mkdir -p /tmp/mgba-package
+          unzip -q "$ZIP_FILE" -d /tmp/mgba-package
+          find /tmp/mgba-package -type f \( -iname 'mgba-sdl.exe' -o -iname 'mgba-sdl*.dll' \) -delete
           cd ../..
-          unzip -l mGBA-0.10.5-X-Y-win64.zip | grep -Ei 'mGBA\\.exe|mgba-sdl\\.exe|portable\\.ini' || true
+          rm -f mGBA-0.10.5-X-Y-win64.zip
+          (cd /tmp/mgba-package && zip -qr "$OLDPWD/mGBA-0.10.5-X-Y-win64.zip" .)
+          unzip -l mGBA-0.10.5-X-Y-win64.zip | grep -Ei 'mgba\.exe|mgba-sdl\.exe|portable\.ini' || true
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
