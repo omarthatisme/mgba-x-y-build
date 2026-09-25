@@ -76,22 +76,24 @@ jobs:
           # Start from the real Qt executable.
           cp "$EXE" /tmp/mgba-package/mGBA.exe
 
-          # Copy the complete MinGW/UCRT dependency closure of mGBA.
-          ntldd -R "$EXE" |
+          # MSYS2's current Qt5 package ships windeployqt-qt5 but names qmake
+          # qmake-qt5.exe; provide the qmake.exe name windeployqt expects.
+          cp -f /ucrt64/bin/qmake-qt5.exe /ucrt64/bin/qmake.exe
+
+          # Deploy the Qt5 runtime and plugins.
+          windeployqt-qt5 --release --no-translations --no-opengl-sw --dir /tmp/mgba-package "$EXE"
+
+          # Add the complete MinGW/UCRT dependency closure of mGBA.
+          # ntldd can return non-zero for optional/unresolved system DLLs; keep
+          # packaging alive while copying every DLL it can resolve.
+          (
+            ntldd -R "$EXE" || true
+          ) |
             awk -F' => ' '/ => / {print $2}' |
             sed -E 's/ \(0x[0-9A-Fa-f]+\)$//' |
             while IFS= read -r DLL; do
               [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
             done
-
-          # Qt5's runtime loads its platform/plugins dynamically, so include the
-          # standard Windows Qt plugin directories alongside the executable.
-          for plugin_dir in platforms imageformats styles iconengines; do
-            if [ -d "/ucrt64/share/qt5/plugins/$plugin_dir" ]; then
-              mkdir -p "/tmp/mgba-package/$plugin_dir"
-              cp -u /ucrt64/share/qt5/plugins/$plugin_dir/*.dll "/tmp/mgba-package/$plugin_dir/" 2>/dev/null || true
-            fi
-          done
 
           # Match the portable layout of the release: docs, bundled licenses, and portable.ini.
           cp ../CHANGES ../LICENSE ../README.md ../README_DE.md ../README_ES.md ../README_ZH_CN.md /tmp/mgba-package/
