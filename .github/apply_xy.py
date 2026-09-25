@@ -32,7 +32,7 @@ replace('src/gba/input.c',
 ''')
 
 replace('include/mgba/internal/gba/serialize.h',
-'''\tDECL_BITS(GBASerializedMiscFlags, KeyIRQKeys, 4, 11);''',
+'''DECL_BITS(GBASerializedMiscFlags, KeyIRQKeys, 4, 11);''',
 '''\tDECL_BITS(GBASerializedMiscFlags, KeyIRQKeys, 4, 13);''')
 
 replace('src/gba/gba.c', '\tgba->keysLast = 0x400;', '\tgba->keysLast = 0x1000;', 3)
