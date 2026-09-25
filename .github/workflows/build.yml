@@ -82,22 +82,16 @@ jobs:
             [ -f "$DLL" ] && cp -u "$DLL" /tmp/mgba-package/
           done
 
-          # Ship Qt platform/image/style plugins, but no development files.
-          for DIR in platforms imageformats iconengines styles mediaservice; do
-            if [ -d "/ucrt64/share/qt5/plugins/$DIR" ]; then
-              mkdir -p "/tmp/mgba-package/$DIR"
-              for DLL in "/ucrt64/share/qt5/plugins/$DIR"/*.dll; do
-                [ -f "$DLL" ] && cp -u "$DLL" "/tmp/mgba-package/$DIR/"
-              done
-            fi
-            if [ -d "/ucrt64/lib/qt5/plugins/$DIR" ]; then
-              mkdir -p "/tmp/mgba-package/$DIR"
-              for DLL in "/ucrt64/lib/qt5/plugins/$DIR"/*.dll; do
-                [ -f "$DLL" ] && cp -u "$DLL" "/tmp/mgba-package/$DIR/"
-              done
-            fi
-          done
-
+          # Find the installed Qt5 plugin tree wherever the current MSYS2
+          # package places it, then copy only plugin DLLs (no development files).
+          QWINDOWS="$(find /ucrt64 -type f -path '*/qt5/plugins/platforms/qwindows.dll' -print -quit 2>/dev/null || true)"
+          test -n "$QWINDOWS"
+          PLUGIN_BASE="${QWINDOWS%/platforms/qwindows.dll}"
+          while IFS= read -r DLL; do
+            REL="${DLL#"$PLUGIN_BASE/"}"
+            mkdir -p "/tmp/mgba-package/$(dirname "$REL")"
+            cp -u "$DLL" "/tmp/mgba-package/$REL"
+          done < <(find "$PLUGIN_BASE" -type f -name '*.dll' -print)
           # Add the complete MinGW/UCRT dependency closure reported by ntldd.
           # The command can return non-zero for Windows system DLLs, so its
           # output is captured without making the packaging step fail.
@@ -124,7 +118,7 @@ jobs:
           # Sanity-check the package before creating the artifact.
           test -f /tmp/mgba-package/mGBA.exe
           test -f /tmp/mgba-package/portable.ini
-          test -f /tmp/mgba-package/platforms/qwindows.dll
+          test -f "/tmp/mgba-package/${QWINDOWS#"$PLUGIN_BASE/"}"
 
           cd ../..
           OUT="$PWD/mGBA-0.10.5-X-Y-win64.zip"
