@@ -19,10 +19,6 @@ replace('include/mgba/internal/gba/input.h',
 \tGBA_KEY_Y = 11,
 \tGBA_KEY_MAX,''')
 
-replace('include/mgba/internal/gba/serialize.h',
-'''DECL_BITS(GBASerializedMiscFlags, KeyIRQKeys, 4, 11);''',
-'''DECL_BITS(GBASerializedMiscFlags, KeyIRQKeys, 4, 13);''')
-
 replace('src/gba/input.c',
 '''\t\t"R",
 \t\t"L"
@@ -33,9 +29,8 @@ replace('src/gba/input.c',
 \t\t"Y"
 ''')
 
-replace('src/gba/gba.c', '\tgba->keysLast = 0x400;', '\tgba->keysLast = 0x1000;', 2)
+replace('src/gba/gba.c', '\tgba->keysLast = 0x400;', '\tgba->keysLast = 0x1000;', 3)
 replace('src/gba/gba.c', '\tkeycnt &= 0x3FF;', '\tkeycnt &= 0x0FFF;')
-replace('src/gba/gba.c', '\t\tgba->keysLast = 0x400;', '\t\tgba->keysLast = 0x1000;')
 
 replace('src/gba/io.c', '\tgba->memory.io[REG_KEYINPUT >> 1] = 0x3FF;', '\tgba->memory.io[REG_KEYINPUT >> 1] = 0x0FFF;')
 replace('src/gba/io.c', '\tcase REG_KEYCNT:\n\t\tvalue &= 0xC3FF;\n\t\tif (gba->keysLast < 0x400) {', '\tcase REG_KEYCNT:\n\t\tvalue &= 0xCFFF;\n\t\tif (gba->keysLast < 0x1000) {')
@@ -100,6 +95,8 @@ replace('src/platform/qt/GBAKeyEditor.cpp',
 \tcase GBA_KEY_Y:
 \t\treturn m_keyY;''')
 
+# X/Y are added directly to the fixed-size arrays, leaving legacy default
+# KeyList aggregate initializers untouched and therefore preserving defaults.
 replace('src/platform/qt/InputProfile.cpp',
 '''\t\tkeys.keyR,
 \t\tkeys.keyL,
