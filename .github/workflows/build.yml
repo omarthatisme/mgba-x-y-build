@@ -49,7 +49,7 @@ jobs:
 
       - name: Apply X/Y source edits
         run: |
-          python ../.github/apply_xy.py
+          python .github/apply_xy.py
           cd mgba
           git diff --check
           git diff --stat
@@ -57,7 +57,7 @@ jobs:
       - name: Configure
         run: |
           cd mgba
-          cmake -S . -B build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_POLICY_VERSION_MINIMUM=3.5             -DDISTBUILD=ON             -DBUILD_QT=ON             -DBUILD_SDL=ON
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DDISTBUILD=ON -DBUILD_QT=ON -DBUILD_SDL=ON
 
       - name: Build
         run: |
@@ -75,9 +75,10 @@ jobs:
           unzip -q "$ZIP_FILE" -d /tmp/mgba-package
           find /tmp/mgba-package -type f \( -iname 'mgba-sdl.exe' -o -iname 'mgba-sdl*.dll' \) -delete
           cd ../..
-          rm -f mGBA-0.10.5-X-Y-win64.zip
-          (cd /tmp/mgba-package && zip -qr "$OLDPWD/mGBA-0.10.5-X-Y-win64.zip" .)
-          unzip -l mGBA-0.10.5-X-Y-win64.zip | grep -Ei 'mgba\.exe|mgba-sdl\.exe|portable\.ini' || true
+          OUT="$PWD/mGBA-0.10.5-X-Y-win64.zip"
+          rm -f "$OUT"
+          (cd /tmp/mgba-package && zip -qr "$OUT" .)
+          unzip -l "$OUT" | grep -Ei 'mgba\.exe|mgba-sdl\.exe|portable\.ini' || true
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
