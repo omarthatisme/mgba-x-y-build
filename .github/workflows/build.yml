@@ -88,9 +88,39 @@ jobs:
           objdump -p mgba/package/mGBA.exe | sed -n '/The Import Tables/,/The Exception Table/p' | grep -E 'DLL Name:|DLL Name' || true
 
           # The official static architecture should not need third-party DLLs.
-          if find mgba/package -type f \\( -iname '*.dll' -o -iname '*.a' \\) | grep -q .; then
+          if find mgba/package -type f | grep -E '\\.(dll|a)
+
+          rm -f mGBA-0.10.5-X-Y-win64.7z
+          7z a -t7z -mx=9 mGBA-0.10.5-X-Y-win64.7z ./mgba/package/*
+
+          test -s mGBA-0.10.5-X-Y-win64.7z
+          sha256sum mGBA-0.10.5-X-Y-win64.7z
+          7z l mGBA-0.10.5-X-Y-win64.7z | sed -n '1,180p'
+
+      - name: Upload finished package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mGBA-0.10.5-X-Y-win64
+          path: mGBA-0.10.5-X-Y-win64.7z
+          if-no-files-found: error
+ | grep -q .; then
             echo "Unexpected dynamic/dev library found in portable package:" >&2
-            find mgba/package -type f \\( -iname '*.dll' -o -iname '*.a' \\) >&2
+            find mgba/package -type f | grep -E '\\.(dll|a)
+
+          rm -f mGBA-0.10.5-X-Y-win64.7z
+          7z a -t7z -mx=9 mGBA-0.10.5-X-Y-win64.7z ./mgba/package/*
+
+          test -s mGBA-0.10.5-X-Y-win64.7z
+          sha256sum mGBA-0.10.5-X-Y-win64.7z
+          7z l mGBA-0.10.5-X-Y-win64.7z | sed -n '1,180p'
+
+      - name: Upload finished package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mGBA-0.10.5-X-Y-win64
+          path: mGBA-0.10.5-X-Y-win64.7z
+          if-no-files-found: error
+ >&2
             exit 1
           fi
 
