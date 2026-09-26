@@ -49,6 +49,20 @@ replace('src/gba/io.c', '\tcase REG_KEYINPUT: {', '''\tcase REG_MGBA_KEYINPUT_XY
 replace('src/gba/io.c', '\t\t\t\tinput &= 0x30F;', '\t\t\t\tinput &= 0x0F0F;')
 replace('src/gba/io.c', '\t\t\tgba->memory.io[address >> 1] = 0x3FF ^ input;', '\t\t\tgba->memory.io[address >> 1] = 0x0FFF ^ input;')
 
+replace('src/platform/qt/InputController.cpp',
+'''void InputController::bindKey(uint32_t type, int key, GBAKey gbaKey) {
+	return mInputBindKey(&m_inputMap, type, key, gbaKey);
+}''',
+'''void InputController::bindKey(uint32_t type, int key, GBAKey gbaKey) {
+	// Keep one physical key/button mapped to at most one GBA input.
+	for (int i = 0; i < GBA_KEY_MAX; ++i) {
+		if (i != gbaKey && mInputQueryBinding(&m_inputMap, type, i) == key) {
+			mInputUnbindKey(&m_inputMap, type, i);
+		}
+	}
+	return mInputBindKey(&m_inputMap, type, key, gbaKey);
+}''')
+
 replace('src/platform/qt/GBAKeyEditor.h',
 '''\tKeyEditor* m_keyL;
 \tKeyEditor* m_keyR;''',
