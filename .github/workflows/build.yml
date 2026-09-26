@@ -82,7 +82,7 @@ jobs:
           test -f mgba/package/mgba-sdl.exe
 
           echo "Package contents:"
-          find mgba/package -type f -printf '%P\\n' | sort
+          find mgba/package -type f -printf '%P\n' | sort
 
           echo "Imported Windows DLLs:"
           objdump -p mgba/package/mGBA.exe | sed -n '/The Import Tables/,/The Exception Table/p' | grep -E 'DLL Name:|DLL Name' || true
