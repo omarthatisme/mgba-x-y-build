@@ -70,6 +70,10 @@ jobs:
               x86_64-w64-mingw32-strip /home/mgba/src/package/mgba-sdl.exe
             '
 
+          # Official mGBA distribution builds include portable.ini so Windows stores
+          # config.ini and qt.ini beside the emulator rather than under %APPDATA%.
+          : > mgba/package/portable.ini
+
           cp mgba/README*.md mgba/package/
           cp mgba/CHANGES mgba/package/
           cp mgba/LICENSE mgba/package/
