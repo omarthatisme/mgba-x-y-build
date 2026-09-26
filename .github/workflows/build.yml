@@ -31,6 +31,7 @@ jobs:
             unzip
             zip
             mingw-w64-ucrt-x86_64-ntldd-git
+            mingw-w64-ucrt-x86_64-angleproject
           pacboy: >-
             toolchain:p
             cmake:p
