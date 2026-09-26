@@ -26,8 +26,6 @@ jobs:
 
       - name: Pull pinned upstream Windows build image
         run: |
-          # This is the Docker image published as mgba/windows:w64-20250310,
-          # the dated upstream Windows dependency image from the 0.10.5 release era.
           docker pull mgba/windows@sha256:065605a634c59d3a6f52adf08cd59e39fa025b79cc46cc7f841bfbb20bfd3bf6
 
       - name: Check out upstream mGBA 0.10.5
@@ -72,8 +70,6 @@ jobs:
               x86_64-w64-mingw32-strip /home/mgba/src/package/mgba-sdl.exe
             '
 
-          # Keep the same small documentation/licensing material users expect
-          # from an upstream source distribution.
           cp mgba/README*.md mgba/package/
           cp mgba/CHANGES mgba/package/
           cp mgba/LICENSE mgba/package/
@@ -87,40 +83,11 @@ jobs:
           echo "Imported Windows DLLs:"
           objdump -p mgba/package/mGBA.exe | sed -n '/The Import Tables/,/The Exception Table/p' | grep -E 'DLL Name:|DLL Name' || true
 
-          # The official static architecture should not need third-party DLLs.
-          if find mgba/package -type f | grep -E '\\.(dll|a)
-
-          rm -f mGBA-0.10.5-X-Y-win64.7z
-          7z a -t7z -mx=9 mGBA-0.10.5-X-Y-win64.7z ./mgba/package/*
-
-          test -s mGBA-0.10.5-X-Y-win64.7z
-          sha256sum mGBA-0.10.5-X-Y-win64.7z
-          7z l mGBA-0.10.5-X-Y-win64.7z | sed -n '1,180p'
-
-      - name: Upload finished package
-        uses: actions/upload-artifact@v4
-        with:
-          name: mGBA-0.10.5-X-Y-win64
-          path: mGBA-0.10.5-X-Y-win64.7z
-          if-no-files-found: error
- | grep -q .; then
+          # Fail only if an actual third-party/dev library was installed.
+          mapfile -t EXTRA_LIBS < <(find mgba/package -type f | grep -E '\\.(dll|a)$' || true)
+          if [ "${#EXTRA_LIBS[@]}" -ne 0 ]; then
             echo "Unexpected dynamic/dev library found in portable package:" >&2
-            find mgba/package -type f | grep -E '\\.(dll|a)
-
-          rm -f mGBA-0.10.5-X-Y-win64.7z
-          7z a -t7z -mx=9 mGBA-0.10.5-X-Y-win64.7z ./mgba/package/*
-
-          test -s mGBA-0.10.5-X-Y-win64.7z
-          sha256sum mGBA-0.10.5-X-Y-win64.7z
-          7z l mGBA-0.10.5-X-Y-win64.7z | sed -n '1,180p'
-
-      - name: Upload finished package
-        uses: actions/upload-artifact@v4
-        with:
-          name: mGBA-0.10.5-X-Y-win64
-          path: mGBA-0.10.5-X-Y-win64.7z
-          if-no-files-found: error
- >&2
+            printf '%s\n' "${EXTRA_LIBS[@]}" >&2
             exit 1
           fi
 
