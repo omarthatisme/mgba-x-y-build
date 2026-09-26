@@ -11,6 +11,10 @@ def replace(rel, old, new, count=1):
     with p.open("w", encoding="utf-8", newline="") as f:
         f.write(s.replace(old, new, count))
 
+replace('include/mgba/internal/gba/io.h',
+'''\tREG_JOYSTAT = 0x158,\n''',
+'''\tREG_JOYSTAT = 0x158,\n\tREG_MGBA_KEYINPUT_XY = 0x15A,\n''')
+
 replace('include/mgba/internal/gba/input.h',
 '''\tGBA_KEY_R = 8,
 \tGBA_KEY_L = 9,
@@ -39,7 +43,9 @@ replace('src/gba/gba.c', '\tgba->keysLast = 0x400;', '\tgba->keysLast = 0x1000;'
 replace('src/gba/gba.c', '\tkeycnt &= 0x3FF;', '\tkeycnt &= 0x0FFF;')
 
 replace('src/gba/io.c', '\tgba->memory.io[REG_KEYINPUT >> 1] = 0x3FF;', '\tgba->memory.io[REG_KEYINPUT >> 1] = 0x0FFF;')
+replace('src/gba/io.c', '\tcase REG_KEYINPUT:\n\tcase REG_KEYCNT:', '\tcase REG_KEYINPUT:\n\tcase REG_MGBA_KEYINPUT_XY:\n\tcase REG_KEYCNT:')
 replace('src/gba/io.c', '\tcase REG_KEYCNT:\n\t\tvalue &= 0xC3FF;\n\t\tif (gba->keysLast < 0x400) {', '\tcase REG_KEYCNT:\n\t\tvalue &= 0xCFFF;\n\t\tif (gba->keysLast < 0x1000) {')
+replace('src/gba/io.c', '\tcase REG_KEYINPUT: {', '''\tcase REG_MGBA_KEYINPUT_XY:\n\t\treturn GBAIORead(gba, REG_KEYINPUT);\n\tcase REG_KEYINPUT: {''')
 replace('src/gba/io.c', '\t\t\t\tinput &= 0x30F;', '\t\t\t\tinput &= 0x0F0F;')
 replace('src/gba/io.c', '\t\t\tgba->memory.io[address >> 1] = 0x3FF ^ input;', '\t\t\tgba->memory.io[address >> 1] = 0x0FFF ^ input;')
 
