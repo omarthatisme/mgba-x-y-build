@@ -59,7 +59,7 @@ jobs:
       - name: Configure
         run: |
           cd mgba
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DDISTBUILD=ON -DBUILD_QT=ON -DBUILD_SDL=ON
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DDISTBUILD=ON -DBUILD_QT=ON -DBUILD_SDL=ON -DBUILD_LTO=OFF
 
       - name: Build
         run: |
