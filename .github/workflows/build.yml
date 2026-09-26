@@ -1,4 +1,4 @@
-name: Build mGBA 0.10.5 X/Y Windows x64
+name: Build mGBA 0.10.5 X/Y Windows x64 (official static toolchain)
 
 on:
   push:
@@ -11,122 +11,99 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
-
-    defaults:
-      run:
-        shell: msys2 {0}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Check out build files
         uses: actions/checkout@v4
 
-      - name: Set up MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            git
-            unzip
-            zip
-            mingw-w64-ucrt-x86_64-ntldd-git
-            mingw-w64-ucrt-x86_64-angleproject
-          pacboy: >-
-            toolchain:p
-            cmake:p
-            ninja:p
-            ffmpeg:p
-            libelf:p
-            libepoxy:p
-            libzip:p
-            lua:p
-            pkgconf:p
-            qt5:p
-            qt5-tools:p
-            SDL2:p
+      - name: Install 7-Zip
+        run: |
+          if ! command -v 7z >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y p7zip-full
+          fi
+
+      - name: Pull pinned upstream Windows build image
+        run: |
+          # This is the Docker image published as mgba/windows:w64-20250310,
+          # the dated upstream Windows dependency image from the 0.10.5 release era.
+          docker pull mgba/windows@sha256:065605a634c59d3a6f52adf08cd59e39fa025b79cc46cc7f841bfbb20bfd3bf6
 
       - name: Check out upstream mGBA 0.10.5
-        run: git clone --depth 1 --branch 0.10.5 https://github.com/mgba-emu/mgba.git mgba
+        run: |
+          git clone --depth 1 --branch 0.10.5 https://github.com/mgba-emu/mgba.git mgba
 
       - name: Apply X/Y source edits
         run: |
-          python .github/apply_xy.py
+          python3 .github/apply_xy.py
           cd mgba
           git diff --check
           git diff --stat
 
-      - name: Configure
+      - name: Build with upstream static Windows toolchain
         run: |
-          cd mgba
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DDISTBUILD=ON -DBUILD_QT=ON -DBUILD_SDL=ON -DBUILD_LTO=OFF
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -e CCACHE_DISABLE=1 \
+            -e MAKEFLAGS="-j$(nproc)" \
+            -v "$GITHUB_WORKSPACE/mgba:/home/mgba/src" \
+            mgba/windows@sha256:065605a634c59d3a6f52adf08cd59e39fa025b79cc46cc7f841bfbb20bfd3bf6
 
-      - name: Build
+      - name: Assemble static portable package
         run: |
-          cd mgba
-          cmake --build build --parallel $(nproc)
+          IMAGE='mgba/windows@sha256:065605a634c59d3a6f52adf08cd59e39fa025b79cc46cc7f841bfbb20bfd3bf6'
 
-      - name: Package clean Qt build
-        run: |
-          cd mgba/build
+          rm -rf mgba/package
+          mkdir -p mgba/package
 
-          # mGBA's Windows install script expects the Qt executable at
-          # build/qt/mGBA.exe, while the Windows target actually outputs
-          # build/mGBA.exe. Give CPack the expected path without changing
-          # the real build output.
-          test -f mGBA.exe
-          mkdir -p qt
-          cp -f mGBA.exe qt/mGBA.exe
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
+            -v "$GITHUB_WORKSPACE/mgba:/home/mgba/src" \
+            "$IMAGE" \
+            sh -lc '
+              cmake --install build-win64 --component mgba-qt --prefix /home/mgba/src/package
+              cmake --install build-win64 --component mgba-sdl --prefix /home/mgba/src/package
+              mkdir -p /home/mgba/src/package/licenses
+              cp -a /opt/licenses/. /home/mgba/src/package/licenses/
+              x86_64-w64-mingw32-strip /home/mgba/src/package/mGBA.exe
+              x86_64-w64-mingw32-strip /home/mgba/src/package/mgba-sdl.exe
+            '
 
-          # MSYS2 names the Qt 5 deployment tool windeployqt-qt5.exe.
-          # mGBA's deploy-win.sh calls it as "windeployqt", so provide a
-          # small PATH wrapper for that exact command.
-          mkdir -p /tmp/mgba-bin
-          cat > /tmp/mgba-bin/windeployqt <<'EOF'
-          #!/bin/bash
-          exec /ucrt64/bin/windeployqt-qt5.exe "$@"
-          EOF
-          chmod +x /tmp/mgba-bin/windeployqt
-          export PATH="/tmp/mgba-bin:$PATH"
-          command -v windeployqt
-          command -v ntldd
+          # Keep the same small documentation/licensing material users expect
+          # from an upstream source distribution.
+          cp mgba/README*.md mgba/package/
+          cp mgba/CHANGES mgba/package/
+          cp mgba/LICENSE mgba/package/
 
-          # Use mGBA's own CPack distribution mechanism, but request only
-          # the runtime components needed by the desktop build.
-          rm -f ./*.zip
-          cpack -G ZIP -D CPACK_ARCHIVE_COMPONENT_INSTALL=OFF -D 'CPACK_COMPONENTS_ALL=mgba;libmgba;mgba-qt;mgba-sdl'
+          test -f mgba/package/mGBA.exe
+          test -f mgba/package/mgba-sdl.exe
 
-          # CPack should have produced exactly one distributable ZIP.
-          mapfile -t PACKAGES < <(find . -maxdepth 1 -type f -name 'mGBA-*.zip' -printf '%f\n')
-          test "${#PACKAGES[@]}" -eq 1
-          PKG="${PACKAGES[0]}"
+          echo "Package contents:"
+          find mgba/package -type f -printf '%P\\n' | sort
 
-          unzip -t "$PKG"
-          echo "CPack package:"
-          echo "$PKG"
-          unzip -Z1 "$PKG" | sed -n '1,160p'
+          echo "Imported Windows DLLs:"
+          objdump -p mgba/package/mGBA.exe | sed -n '/The Import Tables/,/The Exception Table/p' | grep -E 'DLL Name:|DLL Name' || true
 
-          # Verify the portable package contains the runtime DLLs that were
-          # previously missing when upstream deploy-win.sh only matched
-          # /mingw64 paths instead of this UCRT64 build.
-          unzip -Z1 "$PKG" > /tmp/mgba-package-list.txt
-          for required in libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll swscale-10.dll; do
-            grep -Fqi "/$required" /tmp/mgba-package-list.txt || {
-              echo "Missing required runtime DLL in package: $required" >&2
-              exit 1
-            }
-          done
-          grep -Fqi "/platforms/qwindows.dll" /tmp/mgba-package-list.txt || {
-            echo "Missing Qt Windows platform plugin: platforms/qwindows.dll" >&2
+          # The official static architecture should not need third-party DLLs.
+          if find mgba/package -type f \\( -iname '*.dll' -o -iname '*.a' \\) | grep -q .; then
+            echo "Unexpected dynamic/dev library found in portable package:" >&2
+            find mgba/package -type f \\( -iname '*.dll' -o -iname '*.a' \\) >&2
             exit 1
-          }
+          fi
 
-          mv "$PKG" ../../mGBA-0.10.5-X-Y-win64.zip
-          test -s ../../mGBA-0.10.5-X-Y-win64.zip
+          rm -f mGBA-0.10.5-X-Y-win64.7z
+          7z a -t7z -mx=9 mGBA-0.10.5-X-Y-win64.7z ./mgba/package/*
+
+          test -s mGBA-0.10.5-X-Y-win64.7z
+          sha256sum mGBA-0.10.5-X-Y-win64.7z
+          7z l mGBA-0.10.5-X-Y-win64.7z | sed -n '1,180p'
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
         with:
           name: mGBA-0.10.5-X-Y-win64
-          path: mGBA-0.10.5-X-Y-win64.zip
+          path: mGBA-0.10.5-X-Y-win64.7z
           if-no-files-found: error
