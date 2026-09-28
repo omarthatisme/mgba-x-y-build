@@ -185,4 +185,59 @@ replace('src/platform/qt/Window.cpp',
 \t\t}
 \t}, "autofire");''')
 
+# Non-Latin keyboard layouts (Greek, Russian, Arabic, Hebrew...): Qt's
+# QKeyEvent::key() returns the typed character (e.g. Greek chi instead of X),
+# so the default Latin keyboard bindings never match. On Windows the virtual-key
+# code for letter/digit keys stays Latin regardless of layout, so use it when
+# key() is a character beyond Latin-1. Latin layouts (incl. AZERTY/QWERTZ) keep
+# their existing behavior.
+(ROOT / 'src/platform/qt/LayoutKey.h').write_text(
+'''#pragma once
+
+#include <QKeyEvent>
+
+namespace QGBA {
+
+// Returns the Qt key for an event, mapped back to the Latin key on the same
+// physical key when the active layout produces a non-Latin character.
+inline int layoutIndependentKey(const QKeyEvent* event) {
+	int key = event->key();
+#ifdef Q_OS_WIN
+	if (key >= 0x100 && key < 0x01000000) {
+		quint32 vk = event->nativeVirtualKey();
+		if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) {
+			return static_cast<int>(vk); // Qt::Key_A..Key_Z / Key_0..Key_9 equal their ASCII values
+		}
+	}
+#endif
+	return key;
+}
+
+}
+''', encoding='utf-8', newline='\n')
+
+replace('src/platform/qt/Window.cpp',
+'''\tGBAKey key = m_inputController.mapKeyboard(event->key());''',
+'''\tGBAKey key = m_inputController.mapKeyboard(layoutIndependentKey(event));''', 2)
+replace('src/platform/qt/Window.cpp',
+'''#include "Window.h"\n''',
+'''#include "Window.h"\n#include "LayoutKey.h"\n''')
+
+replace('src/platform/qt/KeyEditor.cpp',
+'''setValue(event->key() | (m_key &''',
+'''setValue(layoutIndependentKey(event) | (m_key &''')
+replace('src/platform/qt/KeyEditor.cpp',
+'''\t\t\tsetValue(event->key());\n\t\t}\n\t}\n\tevent->accept();''',
+'''\t\t\tsetValue(layoutIndependentKey(event));\n\t\t}\n\t}\n\tevent->accept();''')
+replace('src/platform/qt/KeyEditor.cpp',
+'''#include "KeyEditor.h"\n''',
+'''#include "KeyEditor.h"\n#include "LayoutKey.h"\n''')
+
+replace('src/platform/qt/ShortcutController.cpp',
+'''\t\tint key = keyEvent->key();\n\t\tif (!isModifierKey(key)) {''',
+'''\t\tint key = layoutIndependentKey(keyEvent);\n\t\tif (!isModifierKey(key)) {''')
+replace('src/platform/qt/ShortcutController.cpp',
+'''#include "ShortcutController.h"\n''',
+'''#include "ShortcutController.h"\n#include "LayoutKey.h"\n''')
+
 print('X/Y patch applied successfully')
