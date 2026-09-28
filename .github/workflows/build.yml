@@ -1,4 +1,4 @@
-name: Build mGBA 0.10.5 X/Y Windows x64 (official static toolchain)
+name: Build mGBA 0.10.5 X/Y/Z Windows x64 (official static toolchain)
 
 on:
   push:
@@ -32,9 +32,9 @@ jobs:
         run: |
           git clone --depth 1 --branch 0.10.5 https://github.com/mgba-emu/mgba.git mgba
 
-      - name: Apply X/Y source edits
+      - name: Apply X/Y/Z source edits
         run: |
-          python3 .github/apply_xy.py
+          python3 .github/apply_xyz.py
           cd mgba
           git diff --check
           git diff --stat
@@ -95,16 +95,16 @@ jobs:
             exit 1
           fi
 
-          rm -f mGBA-0.10.5-X-Y-win64.7z
-          7z a -t7z -mx=9 mGBA-0.10.5-X-Y-win64.7z ./mgba/package/*
+          rm -f mGBA-0.10.5-X-Y-Z-win64.7z
+          7z a -t7z -mx=9 mGBA-0.10.5-X-Y-Z-win64.7z ./mgba/package/*
 
-          test -s mGBA-0.10.5-X-Y-win64.7z
-          sha256sum mGBA-0.10.5-X-Y-win64.7z
-          7z l mGBA-0.10.5-X-Y-win64.7z | sed -n '1,180p'
+          test -s mGBA-0.10.5-X-Y-Z-win64.7z
+          sha256sum mGBA-0.10.5-X-Y-Z-win64.7z
+          7z l mGBA-0.10.5-X-Y-Z-win64.7z | sed -n '1,180p'
 
       - name: Upload finished package
         uses: actions/upload-artifact@v4
         with:
-          name: mGBA-0.10.5-X-Y-win64
-          path: mGBA-0.10.5-X-Y-win64.7z
+          name: mGBA-0.10.5-X-Y-Z-win64
+          path: mGBA-0.10.5-X-Y-Z-win64.7z
           if-no-files-found: error
