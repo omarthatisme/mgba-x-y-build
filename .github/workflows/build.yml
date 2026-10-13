@@ -39,6 +39,13 @@ jobs:
           git diff --check
           git diff --stat
 
+      - name: Add Direct3D 11 / Direct3D 9 display drivers
+        run: |
+          python3 .github/apply_d3d.py
+          cd mgba
+          git diff --check
+          git diff --stat -- src/platform/qt
+
       - name: Build with upstream static Windows toolchain
         run: |
           docker run --rm \
@@ -80,6 +87,13 @@ jobs:
 
           test -f mgba/package/mGBA.exe
           test -f mgba/package/mgba-sdl.exe
+
+          # The Direct3D drivers are compiled in only if BUILD_D3D reached the
+          # compiler; fail loudly instead of shipping a build without them.
+          grep -aq 'Direct3D 11 (low latency)' mgba/package/mGBA.exe || {
+            echo "Direct3D display driver is missing from mGBA.exe" >&2
+            exit 1
+          }
 
           echo "Package contents:"
           find mgba/package -type f -printf '%P\n' | sort
