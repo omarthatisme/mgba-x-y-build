@@ -28,6 +28,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <deque>
+#include <utility>
 #include <vector>
 
 #include <mgba/core/core.h>
@@ -61,7 +63,19 @@ struct DisplayD3D::Impl : public QThread {
 	{
 		setObjectName(QStringLiteral("Direct3D Painter Thread"));
 		clock.start();
+		bool ok = false;
+		int depth = qEnvironmentVariableIntValue("MGBA_D3D_QUEUE", &ok);
+		if (ok) {
+			queueDepth = static_cast<unsigned>(std::min(4, std::max(1, depth)));
+			queueLimit = queueDepth;
+		}
 	}
+
+	struct Frame {
+		std::vector<uint32_t> pixels;
+		unsigned w = 0;
+		unsigned h = 0;
+	};
 
 	void run() override;
 
@@ -84,11 +98,18 @@ struct DisplayD3D::Impl : public QThread {
 	bool lockAspect = false;
 	bool lockInteger = false;
 	bool blend = false;
-	std::vector<uint32_t> pending;
-	unsigned pendingW = 0;
-	unsigned pendingH = 0;
+	// Frames waiting to be shown, oldest first. The emulator can deliver
+	// frames in bursts (an audio device that wakes it every ~30 ms gives pairs
+	// of frames a few ms apart), so a single "newest" slot would throw away
+	// every other frame of a burst. A short in-order queue shows them all, one
+	// per screen refresh; frames beyond queueLimit are dropped oldest-first so
+	// the delay stays bounded. While fast-forwarding the limit is 1 (newest only).
+	std::deque<Frame> queue;
+	std::vector<Frame> spare;
+	unsigned queueDepth = 2;
+	unsigned queueLimit = 2;
+	bool clearFrame = false;
 	uint64_t frameSeq = 0;
-	bool hasFrame = false;
 	QImage overlay;
 	bool overlayPresent = false;
 	uint64_t overlaySeq = 0;
@@ -97,7 +118,6 @@ struct DisplayD3D::Impl : public QThread {
 	// The arrival_* numbers are collected on the GUI thread, under mutex.
 	const bool stats;
 	QElapsedTimer clock;
-	uint64_t consumedSeq = 0;
 	qint64 lastArrival = 0;
 	qint64 arrivals = 0;
 	qint64 arrivalsLate = 0;
@@ -182,19 +202,18 @@ void DisplayD3D::Impl::run() {
 		presentGapSum = 0;
 	};
 
-	std::vector<uint32_t> local;
-	unsigned localW = 0;
-	unsigned localH = 0;
+	Frame local;
 	bool localValid = false;
 	bool frameOnGpu = false;
 	QImage overlayLocal;
 	bool overlayLocalPresent = false;
 	bool overlayOnGpu = false;
-	uint64_t seenFrame = 0;
+	uint64_t ackedSeq = 0;
 	uint64_t seenOverlay = 0;
 
 	for (;;) {
-		bool newFrame = false;
+		bool arrived = false;
+		bool queued = false;
 		CoreController* ctx = nullptr;
 		if (stats && clock.nsecsElapsed() - statStart >= 2000000000LL) {
 			flushStats();
@@ -203,7 +222,7 @@ void DisplayD3D::Impl::run() {
 			QMutexLocker lock(&mutex);
 			bool timedOut = false;
 			while (!quit && !timedOut) {
-				if (frameSeq != seenFrame || overlaySeq != seenOverlay || redraw || hwnd != seenHwnd) {
+				if (!queue.empty() || frameSeq != ackedSeq || overlaySeq != seenOverlay || redraw || hwnd != seenHwnd) {
 					break;
 				}
 				timedOut = !work.wait(&mutex, 200);
@@ -211,8 +230,10 @@ void DisplayD3D::Impl::run() {
 			if (quit) {
 				break;
 			}
-			newFrame = frameSeq != seenFrame;
-			if (newFrame && active && context) {
+			arrived = frameSeq != ackedSeq;
+			queued = !queue.empty();
+			ackedSeq = frameSeq;
+			if (arrived && active && context) {
 				ctx = context;
 				inSync = true;
 			}
@@ -239,11 +260,17 @@ void DisplayD3D::Impl::run() {
 			QMutexLocker lock(&mutex);
 			refresh = refreshRate;
 			wantRedraw = redraw;
+			queueLimit = paced ? queueDepth : 1;
+			while (queue.size() > queueLimit) {
+				spare.push_back(std::move(queue.front()));
+				queue.pop_front();
+				++dropped;
+			}
 		}
 
 		// While fast-forwarding there is no point in drawing more often than
 		// the monitor can show; leave the frame pending until it is due.
-		if (newFrame && !paced && !wantRedraw) {
+		if (queued && !paced && !wantRedraw) {
 			qint64 interval = static_cast<qint64>(1000000000.0 / std::min(500.0, std::max(24.0, refresh)));
 			qint64 elapsed = pace.nsecsElapsed();
 			if (elapsed + 500000 < interval) {
@@ -268,16 +295,22 @@ void DisplayD3D::Impl::run() {
 		bool drawBlend;
 		HWND target;
 		bool overlayChanged = false;
+		bool gotFrame = false;
 		{
 			QMutexLocker lock(&mutex);
-			if (frameSeq != seenFrame) {
-				std::swap(pending, local);
-				localW = pendingW;
-				localH = pendingH;
-				localValid = hasFrame;
-				seenFrame = frameSeq;
-				consumedSeq = frameSeq;
+			if (clearFrame) {
+				clearFrame = false;
+				localValid = false;
 				frameOnGpu = false;
+			}
+			if (!queue.empty()) {
+				Frame next = std::move(queue.front());
+				queue.pop_front();
+				std::swap(local, next);
+				spare.push_back(std::move(next));
+				localValid = true;
+				frameOnGpu = false;
+				gotFrame = true;
 			}
 			if (overlaySeq != seenOverlay) {
 				overlayLocal = overlay;
@@ -354,7 +387,7 @@ void DisplayD3D::Impl::run() {
 		}
 		bool sizeChanged = w != boundW || h != boundH;
 		bool frameStale = localValid && !frameOnGpu;
-		if (!(newFrame || overlayChanged || wantRedraw || hwndChanged || sizeChanged || frameStale || !overlayOnGpu)) {
+		if (!(gotFrame || overlayChanged || wantRedraw || hwndChanged || sizeChanged || frameStale || !overlayOnGpu)) {
 			continue;
 		}
 
@@ -367,7 +400,7 @@ void DisplayD3D::Impl::run() {
 			overlayOnGpu = false;
 		}
 		if (ok && localValid && !frameOnGpu) {
-			ok = renderer->uploadFrame(local.data(), localW, localH, localW * 4);
+			ok = renderer->uploadFrame(local.pixels.data(), local.w, local.h, local.w * 4);
 			frameOnGpu = ok;
 		}
 		if (ok && !overlayOnGpu) {
@@ -381,8 +414,8 @@ void DisplayD3D::Impl::run() {
 		}
 		if (ok) {
 			D3DRenderer::Rect dest = { 0, 0, 0, 0 };
-			if (localValid && localW && localH) {
-				QRect r = clampSize(QSize(localW, localH), QSize(w, h), drawAspect, drawInteger);
+			if (localValid && local.w && local.h) {
+				QRect r = clampSize(QSize(local.w, local.h), QSize(w, h), drawAspect, drawInteger);
 				dest = { r.x(), r.y(), r.width(), r.height() };
 			}
 			ok = renderer->draw(dest, drawFilter, drawBlend);
@@ -393,7 +426,7 @@ void DisplayD3D::Impl::run() {
 			if (stats) {
 				qint64 after = clock.nsecsElapsed();
 				presentBlockMax = std::max(presentBlockMax, after - before);
-				if (newFrame && ok) {
+				if (gotFrame && ok) {
 					if (lastPresent) {
 						qint64 gap = after - lastPresent;
 						++presents;
@@ -502,10 +535,13 @@ void DisplayD3D::stopDrawing() {
 			QMutexLocker lock(&m_impl->mutex);
 			m_impl->active = false;
 			m_impl->context = nullptr;
-			m_impl->hasFrame = false;
+			while (!m_impl->queue.empty()) {
+				m_impl->spare.push_back(std::move(m_impl->queue.front()));
+				m_impl->queue.pop_front();
+			}
+			m_impl->clearFrame = true;
 			m_impl->overlayPresent = false;
 			m_impl->overlay = QImage();
-			++m_impl->frameSeq;
 			++m_impl->overlaySeq;
 			m_impl->redraw = true;
 			// The render thread must be done with the core before it goes away
@@ -597,18 +633,25 @@ void DisplayD3D::framePosted() {
 	const size_t count = static_cast<size_t>(dims.width()) * dims.height();
 	{
 		QMutexLocker lock(&m_impl->mutex);
-		if (m_impl->pending.size() < count) {
-			m_impl->pending.resize(count);
+		Impl::Frame frame;
+		if (!m_impl->spare.empty()) {
+			frame = std::move(m_impl->spare.back());
+			m_impl->spare.pop_back();
 		}
-		memcpy(m_impl->pending.data(), buffer, count * sizeof(color_t));
-		m_impl->pendingW = dims.width();
-		m_impl->pendingH = dims.height();
-		m_impl->hasFrame = true;
+		if (frame.pixels.size() < count) {
+			frame.pixels.resize(count);
+		}
+		memcpy(frame.pixels.data(), buffer, count * sizeof(color_t));
+		frame.w = dims.width();
+		frame.h = dims.height();
+		while (m_impl->queue.size() >= m_impl->queueLimit) {
+			m_impl->spare.push_back(std::move(m_impl->queue.front()));
+			m_impl->queue.pop_front();
+			++m_impl->dropped; // never shown
+		}
+		m_impl->queue.push_back(std::move(frame));
 		if (m_impl->stats) {
 			qint64 now = m_impl->clock.nsecsElapsed();
-			if (m_impl->frameSeq != m_impl->consumedSeq) {
-				++m_impl->dropped; // the previous frame was never shown
-			}
 			if (m_impl->lastArrival) {
 				qint64 gap = now - m_impl->lastArrival;
 				++m_impl->arrivals;

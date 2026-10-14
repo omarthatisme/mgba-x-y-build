@@ -15,8 +15,12 @@ falls back to the Software (Qt) display, as it does for OpenGL.
 
 ## Why it is lower latency than the OpenGL path
 
-* The render thread keeps only the **newest** frame (a one-slot mailbox).
-  The OpenGL path queues up to three frames and shows the oldest first.
+* The render thread keeps at most **two** frames waiting and shows them in
+  order, one per screen refresh. Frames beyond that are dropped oldest-first.
+  The OpenGL path queues up to three frames *and* re-times them with a timer.
+  A short queue is enough to absorb frames that arrive in bursts (some audio
+  devices wake the emulator every ~30 ms, which delivers frames in pairs)
+  without dropping any, and while fast-forwarding only the newest is kept.
 * The thread waits for the swap chain to be ready *before* it picks up the
   frame, so the picture shown is as fresh as possible.
 * With audio/video sync on it presents with VSync; while fast-forwarding it
@@ -59,3 +63,10 @@ about two seconds:
   `present()` blocked.
 
 Nothing is recorded unless the variable is set.
+
+## Tuning
+
+`MGBA_D3D_QUEUE` sets how many frames may wait (1-4, default 2). `1` restores
+the previous "newest frame only" behaviour, which has the lowest possible delay
+on machines whose frames arrive evenly; higher values trade a little delay for
+more tolerance of bursty frame delivery.
