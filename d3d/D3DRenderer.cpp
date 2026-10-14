@@ -144,9 +144,12 @@ public:
 
 	const char* name() const override { return "Direct3D 11"; }
 
+	std::string modeDescription() const override { return m_mode; }
+
 	bool init(HWND hwnd, unsigned width, unsigned height) override {
 		shutdown();
 		m_error.clear();
+		m_mode.clear();
 		if (!loadLibraries() || !createDevice() || !createShaders() || !createStates()) {
 			shutdown();
 			return false;
@@ -430,6 +433,9 @@ private:
 		if (FAILED(hr)) {
 			return fail("D3D11CreateDevice", hr);
 		}
+		char level[32];
+		snprintf(level, sizeof(level), "feature level %u.%u", (got >> 12) & 0xFu, (got >> 8) & 0xFu);
+		m_level = level;
 		return true;
 	}
 
@@ -555,6 +561,12 @@ private:
 			{ kFlipDiscard, 2, 0 },
 			{ DXGI_SWAP_EFFECT_DISCARD, 1, 0 },
 		};
+		static const char* const modes[] = {
+			"flip-discard swap chain with frame-latency object",
+			"flip-sequential swap chain with frame-latency object",
+			"flip-discard swap chain without frame-latency object",
+			"legacy blit swap chain (no flip model)",
+		};
 
 		hr = E_FAIL;
 		const Attempt* used = nullptr;
@@ -579,6 +591,7 @@ private:
 		if (!used) {
 			return fail("IDXGIFactory2::CreateSwapChainForHwnd", hr);
 		}
+		m_mode = std::string(modes[used - attempts]) + ", " + m_level;
 		m_scFlags = used->flags;
 		factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
 		limitLatency();
@@ -689,6 +702,8 @@ private:
 	unsigned m_width = 0;
 	unsigned m_height = 0;
 	UINT m_scFlags = 0;
+	std::string m_mode;
+	std::string m_level;
 	HANDLE m_waitable = nullptr;
 	bool m_ticket = false;
 
@@ -733,9 +748,12 @@ public:
 
 	const char* name() const override { return "Direct3D 9"; }
 
+	std::string modeDescription() const override { return m_mode; }
+
 	bool init(HWND hwnd, unsigned width, unsigned height) override {
 		shutdown();
 		m_error.clear();
+		m_mode.clear();
 		if (!m_d3d9) {
 			m_d3d9 = loadSystemLibrary(L"d3d9.dll");
 		}
@@ -782,6 +800,8 @@ public:
 				                           nullptr, m_dev.put());
 				if (SUCCEEDED(hr)) {
 					m_pp = pp;
+					m_mode = std::string(a.effect == kFlipEx ? "FlipEx swap effect" : "legacy blit swap effect") +
+					         (behavior == D3DCREATE_HARDWARE_VERTEXPROCESSING ? ", hardware vertex processing" : ", software vertex processing");
 					break;
 				}
 			}
@@ -1065,6 +1085,7 @@ private:
 
 	HMODULE m_d3d9 = nullptr;
 	HWND m_hwnd = nullptr;
+	std::string m_mode;
 	D3DPRESENT_PARAMETERS m_pp = {};
 	ComPtr<IDirect3D9Ex> m_d3d;
 	ComPtr<IDirect3DDevice9Ex> m_dev;

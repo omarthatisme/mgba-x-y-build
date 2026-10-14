@@ -34,3 +34,28 @@ falls back to the Software (Qt) display, as it does for OpenGL.
 
 The sources are compiled only when CMake defines `BUILD_D3D` (Windows builds
 only); on other platforms they compile to nothing.
+
+## Diagnosing choppy playback
+
+Set `MGBA_D3D_STATS=1` before starting mGBA to record what the display is
+doing:
+
+```
+set MGBA_D3D_STATS=1
+mGBA.exe
+```
+
+Play for about 20 seconds, then close mGBA. `mgba-d3d-stats.txt` is written
+next to `mGBA.exe` (or in `%TEMP%` if that folder is read-only). The first line
+names the swap chain mode the system accepted; every following line covers
+about two seconds:
+
+* `refresh` – the monitor refresh rate Qt reports. A GBA runs at 59.73 fps, so
+  anything other than ~60 Hz cannot show frames evenly without variable refresh.
+* `frames in` – frames handed over by the emulator, with the time between them.
+  Large gaps here mean the frames arrive unevenly (audio or GUI thread timing).
+* `dropped` – frames replaced before they could be shown.
+* `presented` – frames put on screen, with the time between them, and how long
+  `present()` blocked.
+
+Nothing is recorded unless the variable is set.

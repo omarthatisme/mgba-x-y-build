@@ -11,13 +11,17 @@
 #include "LogController.h"
 #include "utils.h"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QEvent>
+#include <QFile>
 #include <QImage>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QPainter>
 #include <QScreen>
+#include <QTextStream>
 #include <QThread>
 #include <QWaitCondition>
 #include <QWindow>
@@ -53,8 +57,10 @@ qreal pixelRatio(const QWidget* widget) {
 struct DisplayD3D::Impl : public QThread {
 	explicit Impl(D3DRenderer::Backend b)
 		: backend(b)
+		, stats(qEnvironmentVariableIsSet("MGBA_D3D_STATS"))
 	{
 		setObjectName(QStringLiteral("Direct3D Painter Thread"));
+		clock.start();
 	}
 
 	void run() override;
@@ -86,6 +92,18 @@ struct DisplayD3D::Impl : public QThread {
 	QImage overlay;
 	bool overlayPresent = false;
 	uint64_t overlaySeq = 0;
+
+	// Diagnostics, enabled by setting the MGBA_D3D_STATS environment variable.
+	// The arrival_* numbers are collected on the GUI thread, under mutex.
+	const bool stats;
+	QElapsedTimer clock;
+	uint64_t consumedSeq = 0;
+	qint64 lastArrival = 0;
+	qint64 arrivals = 0;
+	qint64 arrivalsLate = 0;
+	qint64 arrivalMax = 0;
+	qint64 dropped = 0;
+	double arrivalSum = 0;
 };
 
 void DisplayD3D::Impl::run() {
@@ -101,6 +119,69 @@ void DisplayD3D::Impl::run() {
 	QElapsedTimer pace;
 	pace.start();
 
+	bool paced = true;
+	QFile statsFile;
+	QTextStream statsOut;
+	qint64 statStart = 0;
+	qint64 presents = 0;
+	qint64 presentsLate = 0;
+	qint64 presentGapMax = 0;
+	qint64 presentBlockMax = 0;
+	qint64 lastPresent = 0;
+	double presentGapSum = 0;
+	if (stats) {
+		statsFile.setFileName(QCoreApplication::applicationDirPath() + QStringLiteral("/mgba-d3d-stats.txt"));
+		if (!statsFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+			statsFile.setFileName(QDir::tempPath() + QStringLiteral("/mgba-d3d-stats.txt"));
+			statsFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
+		}
+		statsOut.setDevice(&statsFile);
+		statsOut << "Stats file for the mGBA Direct3D display. Each line covers about 2 seconds.\n";
+		statsOut.flush();
+		statStart = clock.nsecsElapsed();
+	}
+	auto ms = [](double ns) { return QString::number(ns / 1000000.0, 'f', 1); };
+	auto flushStats = [&]() {
+		qint64 now = clock.nsecsElapsed();
+		qint64 aCount;
+		qint64 aLate;
+		qint64 aMax;
+		qint64 aDropped;
+		double aSum;
+		double refresh;
+		{
+			QMutexLocker lock(&mutex);
+			aCount = arrivals;
+			aLate = arrivalsLate;
+			aMax = arrivalMax;
+			aDropped = dropped;
+			aSum = arrivalSum;
+			refresh = refreshRate;
+			arrivals = arrivalsLate = arrivalMax = dropped = 0;
+			arrivalSum = 0;
+		}
+		statsOut << QStringLiteral("t=%1s refresh=%2Hz paced=%3 | frames in: %4 (gap avg %5 max %6 ms, over 25 ms: %7), dropped: %8 | "
+		                           "presented: %9 (gap avg %10 max %11 ms, over 25 ms: %12), present() blocked max %13 ms")
+		                .arg(QString::number(now / 1e9, 'f', 1))
+		                .arg(QString::number(refresh, 'f', 2))
+		                .arg(paced ? 1 : 0)
+		                .arg(aCount)
+		                .arg(aCount > 0 ? ms(aSum / aCount) : QStringLiteral("-"))
+		                .arg(ms(aMax))
+		                .arg(aLate)
+		                .arg(aDropped)
+		                .arg(presents)
+		                .arg(presents > 0 ? ms(presentGapSum / presents) : QStringLiteral("-"))
+		                .arg(ms(presentGapMax))
+		                .arg(presentsLate)
+		                .arg(ms(presentBlockMax))
+		        << '\n';
+		statsOut.flush();
+		statStart = now;
+		presents = presentsLate = presentGapMax = presentBlockMax = 0;
+		presentGapSum = 0;
+	};
+
 	std::vector<uint32_t> local;
 	unsigned localW = 0;
 	unsigned localH = 0;
@@ -111,11 +192,13 @@ void DisplayD3D::Impl::run() {
 	bool overlayOnGpu = false;
 	uint64_t seenFrame = 0;
 	uint64_t seenOverlay = 0;
-	bool paced = true;
 
 	for (;;) {
 		bool newFrame = false;
 		CoreController* ctx = nullptr;
+		if (stats && clock.nsecsElapsed() - statStart >= 2000000000LL) {
+			flushStats();
+		}
 		{
 			QMutexLocker lock(&mutex);
 			bool timedOut = false;
@@ -193,6 +276,7 @@ void DisplayD3D::Impl::run() {
 				localH = pendingH;
 				localValid = hasFrame;
 				seenFrame = frameSeq;
+				consumedSeq = frameSeq;
 				frameOnGpu = false;
 			}
 			if (overlaySeq != seenOverlay) {
@@ -244,6 +328,10 @@ void DisplayD3D::Impl::run() {
 				frameOnGpu = false;
 				overlayOnGpu = false;
 				LOG(QT, INFO) << QString::fromLatin1("%1 display ready").arg(QString::fromLatin1(renderer->name()));
+				if (stats) {
+					statsOut << "renderer: " << renderer->name() << " - " << QString::fromStdString(renderer->modeDescription()) << '\n';
+					statsOut.flush();
+				}
 			} else {
 				if (!logged) {
 					LOG(QT, ERROR) << QString::fromLatin1("%1 display failed to start: %2")
@@ -300,7 +388,26 @@ void DisplayD3D::Impl::run() {
 			ok = renderer->draw(dest, drawFilter, drawBlend);
 		}
 		if (ok) {
+			qint64 before = stats ? clock.nsecsElapsed() : 0;
 			ok = renderer->present(paced);
+			if (stats) {
+				qint64 after = clock.nsecsElapsed();
+				presentBlockMax = std::max(presentBlockMax, after - before);
+				if (newFrame && ok) {
+					if (lastPresent) {
+						qint64 gap = after - lastPresent;
+						++presents;
+						presentGapSum += gap;
+						presentGapMax = std::max(presentGapMax, gap);
+						if (gap > 25000000) {
+							++presentsLate;
+						}
+					} else {
+						++presents;
+					}
+					lastPresent = after;
+				}
+			}
 		}
 		pace.restart();
 		if (!ok) {
@@ -497,6 +604,24 @@ void DisplayD3D::framePosted() {
 		m_impl->pendingW = dims.width();
 		m_impl->pendingH = dims.height();
 		m_impl->hasFrame = true;
+		if (m_impl->stats) {
+			qint64 now = m_impl->clock.nsecsElapsed();
+			if (m_impl->frameSeq != m_impl->consumedSeq) {
+				++m_impl->dropped; // the previous frame was never shown
+			}
+			if (m_impl->lastArrival) {
+				qint64 gap = now - m_impl->lastArrival;
+				++m_impl->arrivals;
+				m_impl->arrivalSum += gap;
+				m_impl->arrivalMax = std::max(m_impl->arrivalMax, gap);
+				if (gap > 25000000) {
+					++m_impl->arrivalsLate;
+				}
+			} else {
+				++m_impl->arrivals;
+			}
+			m_impl->lastArrival = now;
+		}
 		++m_impl->frameSeq;
 	}
 	m_impl->work.wakeOne();

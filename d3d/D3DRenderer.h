@@ -42,6 +42,10 @@ public:
 
 	virtual const char* name() const = 0;
 
+	// Human readable description of the mode that was actually set up (for
+	// diagnostics), e.g. which swap chain model the system accepted.
+	virtual std::string modeDescription() const = 0;
+
 	// Creates the device and a swap chain for hwnd. width/height are the
 	// client size in pixels.
 	virtual bool init(HWND hwnd, unsigned width, unsigned height) = 0;
